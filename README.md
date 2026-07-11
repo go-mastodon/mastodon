@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-mastodon/brand/main/social/go-mastodon.png" alt="go-mastodon/mastodon" width="720"></p>
+
 # mastodon
 
 [![CI](https://github.com/go-mastodon/mastodon/actions/workflows/ci.yml/badge.svg)](https://github.com/go-mastodon/mastodon/actions/workflows/ci.yml)
