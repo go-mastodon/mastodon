@@ -161,6 +161,51 @@ func (c *Client) AccountStatuses(ctx context.Context, acct string, opts Timeline
 	return c.timeline(ctx, "/api/v1/accounts/"+url.PathEscape(acc.ID)+"/statuses", opts)
 }
 
+// HomeTimeline fetches the authenticated user's home timeline — the statuses
+// from the accounts they follow (GET /api/v1/timelines/home). A bearer token is
+// required; without one the instance returns 401.
+func (c *Client) HomeTimeline(ctx context.Context, opts TimelineOptions) (*Timeline, error) {
+	return c.timeline(ctx, "/api/v1/timelines/home", opts)
+}
+
+// VerifyCredentials fetches the account associated with the configured bearer
+// token (GET /api/v1/accounts/verify_credentials), returning at least its ID —
+// the handle a caller needs to then page the account's own [Client.Following]
+// list. A bearer token is required; without one the instance returns 401.
+func (c *Client) VerifyCredentials(ctx context.Context) (*Account, error) {
+	var acc Account
+	if err := c.getJSON(ctx, "/api/v1/accounts/verify_credentials", nil, &acc); err != nil {
+		return nil, err
+	}
+	return &acc, nil
+}
+
+// FollowingPage is one page of the accounts a target follows, plus the
+// pagination cursor. MaxID is parsed from the Link header's rel="next" URL and
+// passed back via [TimelineOptions.MaxID] to fetch the following page; it is
+// empty when the list is exhausted. Mastodon keys following pagination on an
+// internal relationship id it exposes only through the Link header, so the
+// cursor is opaque and must be round-tripped rather than derived from an account
+// id.
+type FollowingPage struct {
+	Accounts []Account
+	MaxID    string
+}
+
+// Following fetches one page of the accounts that accountID follows
+// (GET /api/v1/accounts/:id/following). Feed the returned [FollowingPage.MaxID]
+// back through [TimelineOptions.MaxID] to page the rest. A bearer token
+// authenticates the request (required when the target hides their follows); a
+// public follows list is readable anonymously.
+func (c *Client) Following(ctx context.Context, accountID string, opts TimelineOptions) (*FollowingPage, error) {
+	var accts []Account
+	resp, err := c.do(ctx, "/api/v1/accounts/"+url.PathEscape(accountID)+"/following", opts.values(), &accts)
+	if err != nil {
+		return nil, err
+	}
+	return &FollowingPage{Accounts: accts, MaxID: nextMaxID(resp.Header.Get("Link"))}, nil
+}
+
 // timeline performs a request that returns a list of statuses and parses the
 // pagination cursor from the Link header.
 func (c *Client) timeline(ctx context.Context, path string, opts TimelineOptions) (*Timeline, error) {
