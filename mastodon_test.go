@@ -240,6 +240,106 @@ func TestBodyReadError(t *testing.T) {
 	}
 }
 
+func TestHomeTimeline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/timelines/home" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+			t.Errorf("auth = %q, want Bearer tok", got)
+		}
+		w.Header().Set("Link", `<https://x/api/v1/timelines/home?max_id=7>; rel="next"`)
+		w.Write([]byte(statusJSON))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithToken("tok"), WithHTTPClient(srv.Client()))
+	tl, err := c.HomeTimeline(context.Background(), TimelineOptions{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tl.MaxID != "7" {
+		t.Errorf("MaxID = %q", tl.MaxID)
+	}
+	if len(tl.Statuses) != 1 || tl.Statuses[0].ID != "1" {
+		t.Errorf("statuses = %+v", tl.Statuses)
+	}
+}
+
+func TestVerifyCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/accounts/verify_credentials" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+			t.Errorf("auth = %q, want Bearer tok", got)
+		}
+		w.Write([]byte(`{"id":"42","username":"me","acct":"me","display_name":"Me"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithToken("tok"), WithHTTPClient(srv.Client()))
+	acc, err := c.VerifyCredentials(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.ID != "42" || acc.Username != "me" {
+		t.Errorf("account = %+v", acc)
+	}
+}
+
+func TestVerifyCredentialsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithHTTPClient(srv.Client()))
+	_, err := c.VerifyCredentials(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unexpected status 401") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestFollowing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/accounts/42/following" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("max_id"); got != "5" {
+			t.Errorf("max_id = %q", got)
+		}
+		w.Header().Set("Link", `<https://x/api/v1/accounts/42/following?max_id=99>; rel="next"`)
+		w.Write([]byte(`[{"id":"7","username":"a","acct":"a@host","display_name":"A"},{"id":"8","username":"b","acct":"b"}]`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithToken("tok"), WithHTTPClient(srv.Client()))
+	pg, err := c.Following(context.Background(), "42", TimelineOptions{MaxID: "5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pg.MaxID != "99" {
+		t.Errorf("MaxID = %q", pg.MaxID)
+	}
+	if len(pg.Accounts) != 2 || pg.Accounts[0].Acct != "a@host" || pg.Accounts[1].Acct != "b" {
+		t.Errorf("accounts = %+v", pg.Accounts)
+	}
+}
+
+func TestFollowingError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithHTTPClient(srv.Client()))
+	_, err := c.Following(context.Background(), "42", TimelineOptions{})
+	if err == nil || !strings.Contains(err.Error(), "unexpected status 500") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestNextMaxID(t *testing.T) {
 	cases := []struct {
 		link string
