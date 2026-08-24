@@ -64,12 +64,14 @@ func New(instance string, opts ...Option) *Client {
 
 // Account is a Mastodon account.
 type Account struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	Acct        string `json:"acct"`
-	DisplayName string `json:"display_name"`
-	URL         string `json:"url"`
-	Avatar      string `json:"avatar"`
+	ID             string `json:"id"`
+	Username       string `json:"username"`
+	Acct           string `json:"acct"`
+	DisplayName    string `json:"display_name"`
+	URL            string `json:"url"`
+	Avatar         string `json:"avatar"`
+	Note           string `json:"note"` // HTML bio
+	FollowersCount int    `json:"followers_count"`
 }
 
 // Media is a media attachment on a status.
@@ -159,6 +161,27 @@ func (c *Client) AccountStatuses(ctx context.Context, acct string, opts Timeline
 		return nil, err
 	}
 	return c.timeline(ctx, "/api/v1/accounts/"+url.PathEscape(acc.ID)+"/statuses", opts)
+}
+
+// SearchAccounts returns the accounts matching q via GET /api/v2/search
+// (type=accounts) — used to discover accounts to follow. It reads the "accounts"
+// slice of the search result and ignores statuses/hashtags. limit caps the page
+// (0 = server default). A token is not required on most instances for account
+// search, but one (via WithToken) broadens the results (remote resolution).
+func (c *Client) SearchAccounts(ctx context.Context, q string, limit int) ([]Account, error) {
+	v := url.Values{}
+	v.Set("q", q)
+	v.Set("type", "accounts")
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	var res struct {
+		Accounts []Account `json:"accounts"`
+	}
+	if err := c.getJSON(ctx, "/api/v2/search", v, &res); err != nil {
+		return nil, err
+	}
+	return res.Accounts, nil
 }
 
 // HomeTimeline fetches the authenticated user's home timeline — the statuses
