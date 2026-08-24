@@ -370,3 +370,57 @@ func TestSnippetTruncation(t *testing.T) {
 	// ensure io is referenced for the errReadCloser interface satisfaction check
 	var _ io.ReadCloser = errReadCloser{}
 }
+
+func TestSearchAccounts(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.Write([]byte(`{"accounts":[{"id":"1","username":"golang","acct":"golang@hachyderm.io","display_name":"Go","url":"https://hachyderm.io/@golang","avatar":"https://cdn/av.png","note":"<p>Go</p>","followers_count":2299}],"statuses":[],"hashtags":[]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, WithHTTPClient(srv.Client()))
+	accts, err := c.SearchAccounts(context.Background(), "golang", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/v2/search" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotQuery, "q=golang") || !strings.Contains(gotQuery, "type=accounts") || !strings.Contains(gotQuery, "limit=5") {
+		t.Fatalf("query = %q", gotQuery)
+	}
+	if len(accts) != 1 {
+		t.Fatalf("accounts = %d", len(accts))
+	}
+	a := accts[0]
+	if a.Acct != "golang@hachyderm.io" || a.DisplayName != "Go" || a.Note != "<p>Go</p>" || a.FollowersCount != 2299 || a.Avatar != "https://cdn/av.png" {
+		t.Fatalf("account = %+v", a)
+	}
+}
+
+func TestSearchAccountsNoLimit(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`{"accounts":[]}`))
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL, WithHTTPClient(srv.Client())).SearchAccounts(context.Background(), "x", 0); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(gotQuery, "limit=") {
+		t.Fatalf("limit should be omitted when 0: %q", gotQuery)
+	}
+}
+
+func TestSearchAccountsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"nope"}`))
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL, WithHTTPClient(srv.Client())).SearchAccounts(context.Background(), "x", 0); err == nil {
+		t.Fatal("expected an error on 401")
+	}
+}
